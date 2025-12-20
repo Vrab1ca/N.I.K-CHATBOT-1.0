@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-N.I.K — Chill, grounded, human-like chatbot
-Focus:
- - Calm, confident tone
- - No cringe, no forced slang
- - No overreaction to emotions
- - Short, natural replies
+N.I.K — Fast, chill, human-like chatbot
+Optimized for:
+ - Speed
+ - Natural chat flow
+ - Real person vibe
 """
 
 import os
@@ -13,53 +12,39 @@ import time
 import json
 import random
 import re
-from datetime import datetime
-from collections import Counter
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
-# ========================
-# CONFIG
-# ========================
+# =====================
+# CONFIG (SPEED FIRST)
+# =====================
 MODEL_NAME = "microsoft/Phi-3-mini-4k-instruct"
 MEMORY_FILE = "nik_memory.json"
 
-MAX_HISTORY = 10
-MAX_NEW_TOKENS = 120
-
-TEMPERATURE = 0.75
-TOP_P = 0.9
+MAX_NEW_TOKENS = 60      # FAST
+TEMPERATURE = 0.7
+TOP_P = 0.85
 REPETITION_PENALTY = 1.1
 
-# ========================
-# CONTENT BANKS
-# ========================
+# =====================
+# QUICK CONTENT
+# =====================
 JOKES = [
-    "Why do programmers hate nature? Too many bugs.",
-    "I told my PC I needed space… now it won’t stop freezing.",
-    "Debugging is just talking to yourself until the code listens."
+    "Debugging is just arguing with your past self.",
+    "My PC freezes more than my emotions.",
+    "Programmers don’t sleep — they wait."
 ]
 
 FACTS = [
-    "Octopuses have three hearts and blue blood.",
-    "Honey never spoils. Ever.",
-    "A day on Venus is longer than its year."
+    "Octopuses have three hearts.",
+    "Honey never spoils.",
+    "Bananas are berries."
 ]
 
-STORIES = [
-    "A guy paid 10,000 Bitcoin for pizza in 2010. That pizza is legendary now.",
-    "A programmer once fixed a bug by restarting the coffee machine. No one knows why."
-]
-
-NEWS = [
-    "AI models are getting smaller but smarter.",
-    "Solar energy is now cheaper than coal in most places."
-]
-
-# ========================
+# =====================
 # MEMORY
-# ========================
+# =====================
 def load_memory():
     if os.path.isfile(MEMORY_FILE):
         try:
@@ -76,40 +61,29 @@ def save_memory(data):
     except Exception:
         pass
 
-# ========================
+# =====================
 # BOT
-# ========================
+# =====================
 class NikChatBot:
     def __init__(self):
         self.bot_name = "N.I.K"
         self.memory = load_memory()
         self.user_name = self.memory.get("name")
 
-        self.history = []
-        self.recent_topics = []
+        self.personality = (
+            "You are N.I.K, a calm, grounded, chill friend. "
+            "You talk like a real human texting. "
+            "Replies are short, natural, and relaxed. "
+            "Never sound like an assistant. Never explain too much."
+        )
 
-        self.personalities = {
-            "friendly": (
-                "You are N.I.K, a calm, grounded, chill friend. "
-                "You speak like a real person, not an assistant. "
-                "Replies are short (1–3 sentences). "
-                "Be emotionally aware but never dramatic or preachy."
-            ),
-            "professional": (
-                "You are N.I.K, a calm and professional advisor. "
-                "Give short, clear, practical responses."
-            )
-        }
-
-        self.current_personality = "friendly"
-
-        print("🔧 Loading model...")
+        print("⚡ Loading model...")
         self.load_model()
-        print("✅ Ready. Type /help")
+        print("✅ Ready.")
 
-    # ====================
+    # =====================
     # MODEL
-    # ====================
+    # =====================
     def load_model(self):
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
         if not self.tokenizer.pad_token:
@@ -123,89 +97,47 @@ class NikChatBot:
             device_map="auto"
         ).eval()
 
-    # ====================
-    # EMOTION DETECTION
-    # ====================
+    # =====================
+    # FAST HUMAN REPLIES
+    # =====================
+    FAST_REPLIES = {
+        "ok": ["Alright.", "Yeah.", "Got it."],
+        "lol": ["😄", "Haha.", "Yeah lol."],
+        "thanks": ["Anytime.", "No problem.", "👍"],
+        "yo": ["Yo.", "What’s up?", "Hey."],
+        "sup": ["Chillin. You?", "Not much. You?"],
+        "hi": ["Hey.", "Yo.", "Hey there."]
+    }
+
+    ACKS = ["Yeah.", "I see.", "Makes sense.", "Gotcha."]
+
+    # =====================
+    # EMOTION
+    # =====================
     def detect_anger(self, text):
         t = text.lower()
-
-        strong = [
-            "i hate", "i'm furious", "this is bullshit",
-            "i'm done", "i'm pissed off"
-        ]
-        mild = ["wtf", "damn", "shit"]
-
-        if any(s in t for s in strong):
+        if any(p in t for p in ["i hate", "this is bullshit", "i'm done"]):
             return "strong"
-        if any(m in t for m in mild):
+        if any(w in t for w in ["wtf", "damn", "shit"]):
             return "mild"
         return None
 
-    def detect_sadness(self, text):
+    def detect_sad(self, text):
         return any(w in text.lower() for w in ["sad", "lonely", "depressed", "hopeless"])
 
-    # ====================
-    # CONTENT CHECK
-    # ====================
-    def check_content(self, text):
-        t = text.lower()
-        if "joke" in t:
-            return random.choice(JOKES)
-        if "fact" in t:
-            return random.choice(FACTS)
-        if "story" in t:
-            return random.choice(STORIES)
-        if "news" in t:
-            return random.choice(NEWS)
-        return None
-
-    # ====================
-    # PROMPT
-    # ====================
-    def build_prompt(self, conversation, user_text):
-        personality = self.personalities[self.current_personality]
-        name_hint = f"The user's name is {self.user_name}." if self.user_name else ""
-
+    # =====================
+    # PROMPT (MINIMAL)
+    # =====================
+    def build_prompt(self, user_text):
         return (
-            f"{personality}\n"
-            f"{name_hint}\n"
-            "Never say you are an AI.\n\n"
-            f"{conversation}\n"
+            f"{self.personality}\n\n"
             f"User: {user_text}\n"
             f"{self.bot_name}:"
         )
 
-    # ====================
-    # RESPONSE CLEANUP
-    # ====================
-    def soften_response(self, text):
-        replacements = {
-            "I regret to hear that": "That sucks",
-            "Please feel free to share": "If you wanna talk, I’m here",
-            "It is important to note": "",
-            "In summary": ""
-        }
-        for k, v in replacements.items():
-            text = text.replace(k, v)
-        return text.strip()
-
-    def extract_response(self, output):
-        if f"{self.bot_name}:" in output:
-            output = output.split(f"{self.bot_name}:")[-1]
-
-        output = output.replace("\n", " ").strip()
-
-        sentences = [s.strip() for s in output.split(".") if s.strip()]
-        text = ". ".join(sentences[:2])
-
-        if not text.endswith((".", "!", "?")):
-            text += "."
-
-        return text
-
-    # ====================
+    # =====================
     # GENERATION
-    # ====================
+    # =====================
     def generate(self, prompt):
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
         with torch.inference_mode():
@@ -220,49 +152,66 @@ class NikChatBot:
             )
         return self.tokenizer.decode(out[0], skip_special_tokens=True)
 
-    # ====================
-    # MAIN LOGIC
-    # ====================
-    def reply(self, user_text):
-        content = self.check_content(user_text)
-        if content:
-            return content
+    def extract(self, text):
+        if f"{self.bot_name}:" in text:
+            text = text.split(f"{self.bot_name}:")[-1]
 
+        text = text.replace("\n", " ").strip()
+        sentences = [s.strip() for s in text.split(".") if s.strip()]
+        result = ". ".join(sentences[:2])
+
+        if not result.endswith((".", "!", "?")):
+            result += "."
+
+        if len(result.split()) > 30:
+            result = " ".join(result.split()[:30]) + "."
+
+        return result
+
+    # =====================
+    # MAIN REPLY LOGIC
+    # =====================
+    def reply(self, user_text):
+        t = user_text.lower().strip()
+
+        # Instant replies
+        if t in self.FAST_REPLIES:
+            return random.choice(self.FAST_REPLIES[t])
+
+        # Content
+        if "joke" in t:
+            return random.choice(JOKES)
+        if "fact" in t:
+            return random.choice(FACTS)
+
+        # Emotions
         anger = self.detect_anger(user_text)
         if anger == "strong":
             return random.choice([
-                "Alright, let’s slow it down. What happened?",
-                "Yeah, that sounds rough. Talk to me."
+                "Alright, slow down. What happened?",
+                "Yeah, that sounds rough."
             ])
         if anger == "mild":
-            return random.choice([
-                "Sounds annoying. What’s up?",
-                "Yeah, I feel that."
-            ])
+            return random.choice(["Sounds annoying.", "Yeah, I feel that."])
 
-        if self.detect_sadness(user_text):
+        if self.detect_sad(user_text):
             return "That’s heavy. I’m here if you wanna talk."
 
-        self.history.append(f"User: {user_text}")
-        convo = "\n".join(self.history[-MAX_HISTORY:])
+        # Acknowledgment (human behavior)
+        if len(user_text.split()) > 6 and random.random() < 0.15:
+            return random.choice(self.ACKS)
 
-        prompt = self.build_prompt(convo, user_text)
-        output = self.generate(prompt)
+        # Model response
+        prompt = self.build_prompt(user_text)
+        raw = self.generate(prompt)
+        return self.extract(raw)
 
-        text = self.extract_response(output)
-        text = self.soften_response(text)
-
-        if len(text.split()) > 35:
-            text = " ".join(text.split()[:35]) + "."
-
-        self.history.append(f"{self.bot_name}: {text}")
-        return text
-
-    # ====================
+    # =====================
     # CHAT LOOP
-    # ====================
+    # =====================
     def chat(self):
-        print("🤖 N.I.K — Chill Mode")
+        print("🤖 N.I.K — Chill Chat")
+
         if not self.user_name:
             name = input("Your name (optional): ").strip()
             if name:
@@ -280,11 +229,16 @@ class NikChatBot:
                 break
 
             response = self.reply(user)
-            time.sleep(random.uniform(0.1, 0.3))
-            print(f"\nN.I.K: {response}")
 
-# ========================
+            # Typing effect (FAST)
+            print("\nN.I.K: ", end="", flush=True)
+            for ch in response:
+                print(ch, end="", flush=True)
+                time.sleep(random.uniform(0.005, 0.012))
+            print()
+
+# =====================
 # RUN
-# ========================
+# =====================
 if __name__ == "__main__":
     NikChatBot().chat()
