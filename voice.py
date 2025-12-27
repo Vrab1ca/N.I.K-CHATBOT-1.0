@@ -2,7 +2,7 @@ import speech_recognition as sr
 import pyttsx3
 import time
 
-from nik_chatbot import NikBrain   # 🔗 CONNECT TO AI BRAIN
+from nikbrain import NikBrain   # 🔗 CONNECT TO AI BRAIN
 
 # -------------------
 # VOICE ENGINE
