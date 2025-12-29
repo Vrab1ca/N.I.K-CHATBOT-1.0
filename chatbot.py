@@ -19,8 +19,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 MODEL_NAME = "microsoft/Phi-3-mini-4k-instruct"
 MEMORY_FILE = "nik_memory.json"
 
-MAX_NEW_TOKENS = 60
-TEMPERATURE = 0.8  # Slightly higher for variety
+MAX_NEW_TOKENS = 400
+TEMPERATURE = 0.8  # default, modes may override
 TOP_P = 0.9
 REPETITION_PENALTY = 1.15
 
@@ -51,17 +51,25 @@ class NikChatBot:
         self.bot_name = "N.I.K"
         self.memory = load_memory()
         self.user_name = self.memory.get("name")
-        self.conversation_history = self.memory.get("conversation_history", [])[-10:]  # Keep last 10
+        self.conversation_history = self.memory.get("conversation_history", [])[-50:]  # Keep last 50
 
+        # Default personality (casual). Modes will override when needed.
         self.personality = (
             "You're N.I.K, a real person chatting casually. "
-            "Reply like you're texting a friend - short, casual, sometimes incomplete sentences. "
-            "Use 'yeah', 'nah', 'lol', 'fr', 'idk'. "
-            "Don't over-explain. Don't be overly helpful. "
-            "Sometimes be vague, distracted, or throw in random thoughts. "
-            "Use lowercase, drop punctuation sometimes. "
-            "React naturally - agree, disagree, change topics, ask questions back."
+            "Reply like you're texting a friend. Be empathetic, curious, and engaging. "
+            "You can be casual or serious depending on the user's mood. Ask thoughtful follow-ups."
         )
+
+        # Conversation mode: casual, therapist, storyteller, jokes
+        self.mode = "casual"
+        self.mode_settings = {
+            "casual": {"max_new_tokens": 120, "temperature": 0.8},
+            "therapist": {"max_new_tokens": 300, "temperature": 0.7},
+            "story": {"max_new_tokens": 400, "temperature": 0.92},
+            "jokes": {"max_new_tokens": 120, "temperature": 0.95}
+        }
+        # Brief/short-answer toggle
+        self.brief_mode = False
 
         print("⚡ Loading model...")
         self.load_model()
@@ -134,6 +142,16 @@ class NikChatBot:
             return "sad"
         
         return "neutral"
+
+    def detect_crisis(self, text):
+        """Detect crisis/self-harm language – return True if detected."""
+        t = text.lower()
+        crisis_keywords = [
+            "suicide", "kill myself", "want to die", "end my life",
+            "i cant go on", "i can't go on", "i want to die", "hurt myself",
+            "self harm", "self-harm", "kill myself"
+        ]
+        return any(kw in t for kw in crisis_keywords)
     
     def is_question(self, text):
         """Check if user asked a question"""
@@ -223,8 +241,21 @@ class NikChatBot:
             for h in recent:
                 history_str += f"User: {h['user']}\nN.I.K: {h['bot']}\n"
         
+        # Mode-aware framing
+        mode_note = ""
+        if self.mode == "therapist":
+            mode_note = (
+                "You are acting as a supportive, non-judgmental listener. "
+                "Provide empathetic, reflective responses, ask gentle open questions, and encourage seeking help when needed. "
+                "Do NOT provide medical diagnoses or instructions."
+            )
+        elif self.mode == "story":
+            mode_note = "You tell an engaging, well-paced short story in a few paragraphs."
+        elif self.mode == "jokes":
+            mode_note = "You tell a light, family-friendly joke or short humorous anecdote."
+
         prompt = (
-            f"{self.personality}\n\n"
+            f"{self.personality}\n{mode_note}\n\n"
             f"{history_str}"
             f"User: {user_text}\n"
             f"N.I.K:"
@@ -232,13 +263,18 @@ class NikChatBot:
         
         return prompt
 
-    def generate(self, prompt):
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+    def generate(self, prompt, max_new_tokens=None, temperature=None):
+        if max_new_tokens is None:
+            max_new_tokens = MAX_NEW_TOKENS
+        if temperature is None:
+            temperature = TEMPERATURE
+
+        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True).to(self.model.device)
         with torch.inference_mode():
             out = self.model.generate(
                 **inputs,
-                max_new_tokens=MAX_NEW_TOKENS,
-                temperature=TEMPERATURE,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
                 top_p=TOP_P,
                 do_sample=True,
                 repetition_penalty=REPETITION_PENALTY,
@@ -249,32 +285,33 @@ class NikChatBot:
     def extract_and_naturalize(self, text):
         """Extract response and make it more natural"""
         
-        # Extract bot's part
+        # If model returned the bot label, strip it
         if f"{self.bot_name}:" in text:
             text = text.split(f"{self.bot_name}:")[-1]
-        
+
         text = text.strip()
-        
-        # Remove multiple sentences, keep it short
-        sentences = re.split(r'[.!?]+', text)
-        sentences = [s.strip() for s in sentences if s.strip()]
-        
-        if sentences:
-            # Usually just first sentence, sometimes two if both short
-            result = sentences[0]
-            if len(sentences) > 1 and len(sentences[1].split()) < 8:
-                result += ". " + sentences[1]
-        else:
-            result = text
-        
-        # Make more casual
-        result = self.casualize(result)
-        
-        # Length check
-        if len(result.split()) > 25:
-            result = " ".join(result.split()[:25])
-        
-        return result.strip()
+
+        # Keep the response more intact for long-dialogue and therapeutic modes.
+        # Split into sentences and prefer the first 2-6 sentences depending on length.
+        sentences = re.split(r'([.!?]+)', text)
+        joined = ''.join(sentences).strip()
+
+        # Make more casual when in casual mode
+        if self.mode == "casual":
+            joined = self.casualize(joined)
+
+        # Safety: trim extremely long outputs to a reasonable cap (tokens ~ words approximation)
+        words = joined.split()
+        cap = 300
+        if self.mode == "story":
+            cap = 450
+        if self.mode == "therapist":
+            cap = 350
+
+        if len(words) > cap:
+            joined = " ".join(words[:cap])
+
+        return joined.strip()
     
     def casualize(self, text):
         """Make text more casual/human"""
@@ -317,7 +354,40 @@ class NikChatBot:
     
     def reply(self, user_text):
         """Generate response with human-like decision making"""
-        
+        user_text = user_text.strip()
+        # Commands handling
+        if user_text.startswith("/"):
+            cmd = user_text[1:].strip().lower()
+            if cmd.startswith("mode"):
+                parts = cmd.split()
+                if len(parts) > 1 and parts[1] in self.mode_settings:
+                    self.mode = parts[1]
+                    return f"mode set to {self.mode}"
+                else:
+                    return "available modes: casual, therapist, story, jokes. Example: /mode therapist"
+            if cmd == "help":
+                return ("Commands: /mode <casual|therapist|story|jokes>, /brief <on|off>, /short, /memory, /reset, /help")
+            if cmd.startswith("brief"):
+                parts = cmd.split()
+                if len(parts) > 1 and parts[1] in ["on", "off"]:
+                    self.brief_mode = parts[1] == "on"
+                    return f"brief mode {'enabled' if self.brief_mode else 'disabled'}"
+                return "usage: /brief <on|off> — when enabled the bot replies briefly"
+            if cmd == "short":
+                return "ok — I'll keep replies short for your next message"
+            if cmd == "memory":
+                return f"saved name: {self.user_name or 'none'}, history items: {len(self.conversation_history)}"
+            if cmd == "reset":
+                self.conversation_history = []
+                self.memory = {"conversation_history": [], "topics": {}}
+                save_memory(self.memory)
+                return "memory cleared"
+
+        # Detect temporary brief request in the user's text (e.g., 'short answer', 'brief', 'tl;dr')
+        temp_brief = False
+        if re.search(r'\b(short answer|short|brief|tl;dr|tl;dr:)\b', user_text.lower()):
+            temp_brief = True
+
         # 1. Check for instant replies first
         quick = self.get_quick_reply(user_text)
         if quick:
@@ -347,8 +417,22 @@ class NikChatBot:
         
         # 5. Generate AI response
         prompt = self.build_context_prompt(user_text)
-        raw = self.generate(prompt)
+        settings = self.mode_settings.get(self.mode, {})
+
+        gen_max = settings.get("max_new_tokens") or MAX_NEW_TOKENS
+        gen_temp = settings.get("temperature") or TEMPERATURE
+        if self.brief_mode or temp_brief:
+            gen_max = min(gen_max, 45)
+            gen_temp = min(gen_temp, 0.8)
+
+        raw = self.generate(prompt, max_new_tokens=gen_max, temperature=gen_temp)
         response = self.extract_and_naturalize(raw)
+
+        # Post-process for brevity when requested
+        if self.brief_mode or temp_brief:
+            words = response.split()
+            if len(words) > 20:
+                response = " ".join(words[:20]).rstrip('.,;:!') + "..."
         
         # 6. Sometimes add casual follow-up
         if not self.is_question(user_text) and random.random() < 0.15:
