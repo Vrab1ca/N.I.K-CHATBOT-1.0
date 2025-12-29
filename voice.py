@@ -44,6 +44,16 @@ def speak(text, clarity='high'):
     if not text:
         return
 
+    # Expand initialisms like "N.I.K." or "N.I.K" -> "N I K" so TTS reads each letter
+    def _expand_initialisms(s: str) -> str:
+        pattern = re.compile(r"\b(?:[A-Za-z]\.){2,}[A-Za-z]?\.?\b")
+        def _repl(m):
+            letters = [c for c in m.group(0) if c.isalpha()]
+            return ' '.join(letters)
+        return pattern.sub(_repl, s)
+
+    text = _expand_initialisms(text)
+
     # Normalize whitespace
     text = re.sub(r"\s+", " ", text.strip())
 
@@ -58,20 +68,16 @@ def speak(text, clarity='high'):
         sentence_pause = 0.16
         comma_pause = 0.06
 
-    for sentence in sentences:
-        # Further split on commas to make speech natural
-        parts = [p.strip() for p in sentence.split(',') if p.strip()]
-        for i, part in enumerate(parts):
-            try:
-                engine.say(part)
-                engine.runAndWait()
-            except Exception as e:
-                print("TTS error:", e)
-            # short pause after comma parts (but not after last part of sentence)
-            if i < len(parts) - 1:
-                time.sleep(comma_pause)
-        # longer pause after each sentence
+    # Queue each sentence (keep punctuation) and run once to avoid truncation
+    try:
+        for sentence in sentences:
+            if sentence.strip():
+                engine.say(sentence.strip())
+        engine.runAndWait()
+        # small pause after full reply
         time.sleep(sentence_pause)
+    except Exception as e:
+        print("TTS error:", e)
 
 # -------------------
 # SPEECH TO TEXT
