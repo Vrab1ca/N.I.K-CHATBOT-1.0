@@ -1,4 +1,5 @@
 import re
+import random
 import speech_recognition as sr
 import pyttsx3
 import time
@@ -10,51 +11,52 @@ from nikbrain import NikBrain   # CONNECT TO BRAIN
 # VOICE ENGINE
 # -------------------
 engine = pyttsx3.init()
-# Slightly slower rate for clarity but not too slow
-engine.setProperty("rate", 150)
+# Base settings: slightly faster for a livelier voice
+BASE_RATE = 180
+engine.setProperty("rate", BASE_RATE)
 engine.setProperty("volume", 1.0)
 
 voices = engine.getProperty("voices")
 
-def choose_clear_voice(voices_list):
-    # Prefer common clear English voices on Windows (Zira/Anna/Microsoft), else fallback
-    preferred = ["zira", "anna", "microsoft", "female", "en_US", "en"]
+def choose_cool_boy_voice(voices_list):
+    # Prefer common clear male English voices on Windows (David/Michael), else fallback
+    preferred = ["david", "michael", "mark", "male", "microsoft", "en_us", "en"]
     for p in preferred:
         for v in voices_list:
-            if v and getattr(v, 'name', None) and p.lower() in v.name.lower():
+            name = getattr(v, 'name', '') or ''
+            if p.lower() in name.lower():
                 return v.id
-            # some voice objects expose languages
             if hasattr(v, 'languages') and any(p.lower() in str(lang).lower() for lang in v.languages):
                 return v.id
-    # fallback to first available
+    # fallback to any male-like voice or first available
+    for v in voices_list:
+        if 'male' in (getattr(v, 'name', '') or '').lower():
+            return v.id
     return voices_list[0].id if voices_list else None
 
-chosen = choose_clear_voice(voices)
+chosen = choose_cool_boy_voice(voices)
 if chosen:
     engine.setProperty("voice", chosen)
 
 
-def speak(text, clarity='high'):
-    """Speak `text` with improved clarity.
+def _expand_initialisms(s: str) -> str:
+    pattern = re.compile(r"\b(?:[A-Za-z]\.){2,}[A-Za-z]?\.?\b")
+    def _repl(m):
+        letters = [c for c in m.group(0) if c.isalpha()]
+        return ' '.join(letters)
+    return pattern.sub(_repl, s)
 
-    - Splits on sentence end punctuation so each sentence is spoken distinctly.
-    - Adds short pauses for commas and longer pauses between sentences.
-    - `clarity` can be 'high' or 'normal' to control pause lengths.
+
+def speak(text, clarity='high', voice_style='cool_boy'):
+    """Speak `text` with improved clarity and a cooler, less-robotic voice.
+
+    - `clarity`: 'high' or 'normal' to control pauses.
+    - `voice_style`: 'cool_boy' prefers a male voice and slightly faster, natural prosody.
     """
     if not text:
         return
 
-    # Expand initialisms like "N.I.K." or "N.I.K" -> "N I K" so TTS reads each letter
-    def _expand_initialisms(s: str) -> str:
-        pattern = re.compile(r"\b(?:[A-Za-z]\.){2,}[A-Za-z]?\.?\b")
-        def _repl(m):
-            letters = [c for c in m.group(0) if c.isalpha()]
-            return ' '.join(letters)
-        return pattern.sub(_repl, s)
-
     text = _expand_initialisms(text)
-
-    # Normalize whitespace
     text = re.sub(r"\s+", " ", text.strip())
 
     # Sentence split (keeps punctuation attached)
@@ -62,22 +64,54 @@ def speak(text, clarity='high'):
 
     # Pause settings
     if clarity == 'high':
-        sentence_pause = 0.28
-        comma_pause = 0.10
+        sentence_pause = 0.20
+        comma_pause = 0.08
     else:
-        sentence_pause = 0.16
-        comma_pause = 0.06
+        sentence_pause = 0.12
+        comma_pause = 0.05
 
-    # Queue each sentence (keep punctuation) and run once to avoid truncation
+    # Temporarily tweak engine properties for a less robotic feel
+    prev_rate = engine.getProperty('rate')
+    prev_voice = engine.getProperty('voice')
+
+    if voice_style == 'cool_boy':
+        base = BASE_RATE + 10
+    else:
+        base = BASE_RATE
+
     try:
         for sentence in sentences:
-            if sentence.strip():
-                engine.say(sentence.strip())
+            s = sentence.strip()
+            if not s:
+                continue
+            # small natural variation in rate per sentence
+            rate_variation = random.randint(-6, 6)
+            engine.setProperty('rate', max(120, base + rate_variation))
+
+            # Insert slight pauses around commas to improve clarity
+            parts = re.split(r'(,)', s)
+            spoken = ''
+            for p in parts:
+                if p == ',':
+                    # speak a short pause by adding a brief silence token (no direct API); we'll sleep after say
+                    continue
+                if p.strip():
+                    engine.say(p.strip())
+                    # small immediate pause between comma-separated segments
+                    if ',' in s:
+                        time.sleep(comma_pause)
+
         engine.runAndWait()
-        # small pause after full reply
         time.sleep(sentence_pause)
     except Exception as e:
         print("TTS error:", e)
+    finally:
+        # restore previous settings
+        try:
+            engine.setProperty('rate', prev_rate)
+            engine.setProperty('voice', prev_voice)
+        except Exception:
+            pass
 
 # -------------------
 # SPEECH TO TEXT
