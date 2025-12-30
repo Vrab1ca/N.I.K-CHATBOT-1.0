@@ -19,8 +19,8 @@ engine.setProperty("volume", 1.0)
 voices = engine.getProperty("voices")
 
 def choose_cool_boy_voice(voices_list):
-    # Prefer common clear male English voices on Windows (David/Michael), else fallback
-    preferred = ["david", "michael", "mark", "male", "microsoft", "en_us", "en"]
+    # Prefer common clear English voices on Windows (David/Zira/Michael), else fallback
+    preferred = ["david", "zira", "michael", "mark", "male", "microsoft", "en_us", "en"]
     for p in preferred:
         for v in voices_list:
             name = getattr(v, 'name', '') or ''
@@ -84,25 +84,33 @@ def speak(text, clarity='high', voice_style='cool_boy'):
             s = sentence.strip()
             if not s:
                 continue
-            # small natural variation in rate per sentence
+
+            # small natural variation in rate per sentence (keeps voice natural)
             rate_variation = random.randint(-6, 6)
             engine.setProperty('rate', max(120, base + rate_variation))
 
-            # Insert slight pauses around commas to improve clarity
-            parts = re.split(r'(,)', s)
-            spoken = ''
-            for p in parts:
-                if p == ',':
-                    # speak a short pause by adding a brief silence token (no direct API); we'll sleep after say
+            # Split into smaller spoken chunks (commas/semicolons) and speak each immediately
+            parts = re.split(r'(,|;)', s)
+            for i, part in enumerate(parts):
+                if not part or part in {',', ';'}:
                     continue
-                if p.strip():
-                    engine.say(p.strip())
-                    # small immediate pause between comma-separated segments
-                    if ',' in s:
-                        time.sleep(comma_pause)
+                chunk = part.strip()
+                if not chunk:
+                    continue
+                engine.say(chunk)
+                # run immediately to avoid buffering many segments together
+                engine.runAndWait()
 
-        engine.runAndWait()
-        time.sleep(sentence_pause)
+                # If the next token is a comma/semicolon, pause slightly longer
+                next_tok = parts[i + 1] if i + 1 < len(parts) else ''
+                if next_tok in {',', ';'}:
+                    time.sleep(comma_pause)
+                else:
+                    # very short gap between continuous chunks
+                    time.sleep(0.02)
+
+            # Pause after each sentence for clarity
+            time.sleep(sentence_pause)
     except Exception as e:
         print("TTS error:", e)
     finally:

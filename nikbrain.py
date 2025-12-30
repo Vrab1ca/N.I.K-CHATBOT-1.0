@@ -7,49 +7,88 @@ class NikBrain:
         self.last_topic = None
         self.user_name = None
 
-        # expanded phrase lists for more varied, longer replies
         self.greetings = [
-            "Hey. What’s good?",
-            "Yo. How you doing?",
-            "Hey hey. Talk to me.",
-            "What’s up? I’m here for a chat.",
-            "Hi there — tell me what’s on your mind."
+            "Yo. What’s good?",
+            "Hey hey — what’s the vibe?",
+            "What’s up? I’m here.",
+            "Ay, talk to me.",
+            "Hey. How you feeling today?",
+            "Yo yo. What’s on your mind?",
+            "Sup. Chill vibes only."
         ]
 
         self.jokes = [
             "Why don’t programmers like nature? Too many bugs.",
-            "I tried to be normal once. Worst two minutes of my life.",
-            "Debugging is like being a detective in your own crime movie.",
-            "Parallel lines have so much in common. It’s a shame they’ll never meet."
+            "I tried to be normal once. Didn’t last.",
+            "Debugging is just arguing with your past self.",
+            "My brain has too many tabs open.",
+            "Parallel lines got chemistry but no future. Sad."
         ]
 
         self.facts = [
-            "Fun fact: your brain uses about twenty percent of your body’s energy.",
-            "Octopuses have three hearts. Wild, right?",
-            "Your phone is more powerful than the computers used in the moon landing.",
-            "Honey never spoils — archaeologists found edible honey in ancient tombs."
+            "Random fact: your brain burns a lot of energy just by thinking.",
+            "Octopuses got three hearts. Built different.",
+            "Your phone is stronger than the moon-landing computers. Crazy.",
+            "Honey never expires. Immortal food."
         ]
 
         self.vibes = [
-            "I’m vibing. Want a chill topic or something hype?",
-            "Vibe check: good music, good energy, or deep talk?",
-            "Tell me a song you like and I’ll match the mood." 
+            "Vibe check. We going chill, funny, or deep?",
+            "What’s the mood right now — music, talk, or chaos?",
+            "Tell me the vibe and I’ll match it.",
+            "Got a song stuck in your head?"
         ]
 
         self.default_lines = [
-            "Yeah, I feel that.",
-            "Makes sense honestly.",
-            "Go on. I’m listening.",
-            "Hmm. Interesting.",
-            "Not gonna lie, that’s real.",
-            "That’s deep — tell me more about why you think that."
+            "Yeah, I feel you.",
+            "Lowkey makes sense.",
+            "Ngl, that’s real.",
+            "Hmm… interesting.",
+            "I hear you.",
+            "Go on, I’m listening.",
+            "That’s valid.",
+            "Not gonna lie, that hits."
         ]
 
-        # common misspellings / shorthand to tolerate
+        self.reactions = [
+            "Fr.",
+            "Facts.",
+            "Honestly?",
+            "Real talk.",
+            "No cap."
+        ]
+
+        # extra slang, chill words and quick replies for vibe
+        self.slang = [
+            "lowkey", "highkey", "vibe", "chill", "dope", "lit", "bet", "bruh", "fam",
+            "ya", "yeah", "ngl", "no cap", "fr", "imo", "irl"
+        ]
+
+        self.quick_responses = [
+            "Bet.",
+            "Say less.",
+            "Gotcha.",
+            "On it.",
+            "Cool.",
+            "Nice.",
+            "I got you.",
+            "Heard.",
+            "Aight."
+        ]
+
+        self.chill_phrases = [
+            "That’s vibes.",
+            "Super chill.",
+            "We vibin'.",
+            "All good here.",
+            "Easy breezy.",
+            "Keep it mellow."
+        ]
+
         self.typo_map = {
             "hello": ["helo", "helloo", "hallo"],
-            "hello2": ["hi", "hey", "yo"],
-            "how are you": ["how r u", "how ru", "howareyou"],
+            "hello2": ["hi", "hey", "yo", "sup"],
+            "how are you": ["how r u", "how ru", "hru"],
             "sorry": ["sry"],
             "i am": ["im", "i'm", "iam"]
         }
@@ -59,8 +98,37 @@ class NikBrain:
         text = re.sub(r"[^a-z0-9\s'?.!,]", " ", text)
         return text
 
+    def _apply_style(self, resp, style):
+        """Apply small stylistic tweaks: slang insertion, shorten for fast mode."""
+        if not resp:
+            return resp
+
+        out = resp
+        # fast style: prefer short quick responses
+        if style == 'fast':
+            if random.random() < 0.6:
+                out = random.choice(self.quick_responses)
+            else:
+                # shorten long replies
+                out_words = out.split()
+                out = ' '.join(out_words[:6]) + ('' if len(out_words) <= 6 else '...')
+
+        # chill/vibe style: sprinkle slang occasionally
+        if style in ('chill', 'vibe') and random.random() < 0.45:
+            token = random.choice(self.slang)
+            # append or prepend small token for vibe
+            if random.random() < 0.5:
+                out = f"{token}, {out}"
+            else:
+                out = f"{out} — {token}"
+
+        # small probability to append a chill phrase
+        if style in ('chill', 'vibe') and random.random() < 0.18:
+            out = f"{out} {random.choice(self.chill_phrases)}"
+
+        return out
+
     def _matches(self, text, keywords):
-        # tolerant contains: match any keyword or common typo forms
         for k in keywords:
             if k in text:
                 return True
@@ -71,89 +139,101 @@ class NikBrain:
         return False
 
     def _long_reply(self, parts, min_sent=2, max_sent=3):
-        # join multiple short lines into a longer flowing reply
         count = random.randint(min_sent, max_sent)
         chosen = random.sample(parts, min(count, len(parts)))
-        # make it a readable paragraph
+        if random.random() < 0.4:
+            chosen.insert(0, random.choice(self.reactions))
         return " ".join(chosen)
 
-    def reply(self, text, long=False):
-        text_raw = text
+    def reply(self, text, long=False, style='chill'):
+        """Generate a reply.
+
+        style: 'chill' (default), 'vibe', or 'fast' to influence wording and length.
+        """
         text = self._clean(text)
 
         # GREETINGS
         if self._matches(text, ["hello", "hello2"]):
-            return self._long_reply(self.greetings, 1, 2) if long or random.random() < 0.3 else random.choice(self.greetings)
+            resp = self._long_reply(self.greetings, 1, 2)
+            return self._apply_style(resp, style)
 
-        # ASKING HOW I AM
-        if "how are you" in text or self._matches(text, ["how are you"]):
-            return "I’m chillin — feeling curious and ready to vibe. How about you?"
+        # HOW ARE YOU
+        if self._matches(text, ["how are you"]):
+            resp = "I’m chillin, honestly. Good energy, clear mind. You?"
+            return self._apply_style(resp, style)
 
-        # FEELINGS / MOOD
-        if any(x in text for x in ["sad", "depressed", "bad day", "unhappy", "lonely"]):
+        # FEELINGS
+        if any(x in text for x in ["sad", "depressed", "bad day", "unhappy", "lonely", "tired"]):
             self.last_topic = "feelings"
             parts = [
-                "Damn… that’s rough.",
-                "If you want, tell me what happened — I can listen.",
-                "Or if you prefer, we can distract with jokes, music, or a silly game."
+                "Damn… that sounds heavy.",
+                "You don’t gotta carry it alone.",
+                "If you wanna vent, I’m here.",
+                "Or we can switch vibes if that helps."
             ]
-            return self._long_reply(parts) if long or random.random() < 0.6 else random.choice(parts)
+            resp = self._long_reply(parts, 2, 3)
+            return self._apply_style(resp, style)
 
-        # JOKES / FUN
+        # JOKES
         if self._matches(text, ["joke", "funny"]):
-            return self._long_reply(self.jokes, 1, 2) if long else random.choice(self.jokes)
+            resp = random.choice(self.jokes)
+            return self._apply_style(resp, style)
 
         # FACTS
         if self._matches(text, ["fact", "tell me something"]):
-            return self._long_reply(self.facts, 1, 2) if long else random.choice(self.facts)
+            resp = random.choice(self.facts)
+            return self._apply_style(resp, style)
 
         # VIBE / MUSIC
         if any(x in text for x in ["vibe", "mood", "song", "music", "playlist"]):
             self.last_topic = "vibe"
-            return self._long_reply(self.vibes, 1, 2)
+            resp = self._long_reply(self.vibes, 1, 2)
+            return self._apply_style(resp, style)
 
-        # PROBLEM SOLVING
+        # PROBLEMS
         if any(x in text for x in ["problem", "help", "fix", "issue"]):
             self.last_topic = "problem"
             parts = [
-                "Alright. Tell me what’s going on. Let’s fix it together.",
-                "Start with the simplest description — what did you expect to happen?",
-                "We’ll take it step by step, no rush."
+                "Alright, let’s break it down.",
+                "Tell me what happened.",
+                "We’ll fix it step by step, no stress."
             ]
-            return self._long_reply(parts) if long else random.choice(parts)
+            resp = self._long_reply(parts, 2, 3)
+            return self._apply_style(resp, style)
 
         # CONTEXT FOLLOW-UP
         if self.last_topic == "feelings":
-            return "I’m listening. You don’t have to rush. Say what you feel."
+            resp = "I’m here. Take your time — what’s really bothering you?"
+            return self._apply_style(resp, style)
 
         if self.last_topic == "problem":
-            return "Okay. Walk me through it step by step — what happened first?"
+            resp = "Okay. What’s the first thing that went wrong?"
+            return self._apply_style(resp, style)
 
         # EXIT
         if any(x in text for x in ["bye", "exit", "stop", "goodbye"]):
-            return "Alright. Take care — hit me up whenever."
+            resp = "Aight. Stay safe and come back anytime."
+            return self._apply_style(resp, style)
 
-        # SMALL TALK / COMPLIMENTS
-        if any(x in text for x in ["cool", "nice", "love", "like", "dope"]):
-            parts = [
-                "That’s dope.",
-                "Love hearing that.",
-                "Nice — tell me more." 
-            ]
-            return self._long_reply(parts) if long else random.choice(parts)
-
-        # HANDLE SHORT/AMBIGUOUS MESSAGES (encourage longer dialogue)
-        if len(text.strip().split()) <= 3:
+        # SHORT MESSAGES
+        if len(text.split()) <= 3:
             prompts = [
-                "Say more — what’s on your mind?",
-                "I’m curious. Can you expand on that?",
-                "Give me the vibe: funny, deep, or random?"
+                "Say more.",
+                "Expand on that.",
+                "What’s the vibe?",
+                "Go on 👀"
             ]
-            return random.choice(prompts)
+            resp = random.choice(prompts)
+            return self._apply_style(resp, style)
 
         # DEFAULT
-        # sometimes produce a longer, vibey reply
-        if long or random.random() < 0.25:
-            return self._long_reply(self.default_lines + self.facts + self.vibes, 2, 3)
+        if long or random.random() < 0.3:
+            resp = self._long_reply(
+                self.default_lines + self.vibes + self.facts,
+                2,
+                3
+            )
+            return self._apply_style(resp, style)
 
-        return random.choice(self.default_lines)
+        resp = random.choice(self.default_lines)
+        return self._apply_style(resp, style)
