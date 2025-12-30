@@ -98,25 +98,10 @@ def speak(text, clarity='high', voice_style='cool_boy', speed='normal'):
             rate_variation = random.randint(-6, 6)
             engine.setProperty('rate', max(120, base + rate_variation))
 
-            # Split into smaller spoken chunks (commas/semicolons) and speak each immediately
-            parts = re.split(r'(,|;)', s)
-            for i, part in enumerate(parts):
-                if not part or part in {',', ';'}:
-                    continue
-                chunk = part.strip()
-                if not chunk:
-                    continue
-                engine.say(chunk)
-                # run immediately to avoid buffering many segments together
-                engine.runAndWait()
-
-                # If the next token is a comma/semicolon, pause slightly longer
-                next_tok = parts[i + 1] if i + 1 < len(parts) else ''
-                if next_tok in {',', ';'}:
-                    time.sleep(comma_pause)
-                else:
-                    # very short gap between continuous chunks
-                    time.sleep(0.01 if speed == 'fast' else 0.02)
+            # Speak the entire sentence at once (more reliable across platforms).
+            # Adjust rate per-sentence, queue the sentence, then run the engine once.
+            engine.say(s)
+            engine.runAndWait()
 
             # Pause after each sentence for clarity (shorter if fast)
             time.sleep(sentence_pause)
