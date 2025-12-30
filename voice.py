@@ -47,11 +47,12 @@ def _expand_initialisms(s: str) -> str:
     return pattern.sub(_repl, s)
 
 
-def speak(text, clarity='high', voice_style='cool_boy'):
+def speak(text, clarity='high', voice_style='cool_boy', speed='normal'):
     """Speak `text` with improved clarity and a cooler, less-robotic voice.
 
     - `clarity`: 'high' or 'normal' to control pauses.
     - `voice_style`: 'cool_boy' prefers a male voice and slightly faster, natural prosody.
+    - `speed`: 'normal' or 'fast' to control playback rate and pause lengths.
     """
     if not text:
         return
@@ -62,13 +63,17 @@ def speak(text, clarity='high', voice_style='cool_boy'):
     # Sentence split (keeps punctuation attached)
     sentences = re.split(r'(?<=[.!?])\s+', text)
 
-    # Pause settings
-    if clarity == 'high':
-        sentence_pause = 0.20
-        comma_pause = 0.08
+    # Pause settings (shorter when speed=='fast')
+    if speed == 'fast':
+        sentence_pause = 0.10
+        comma_pause = 0.04
     else:
-        sentence_pause = 0.12
-        comma_pause = 0.05
+        if clarity == 'high':
+            sentence_pause = 0.20
+            comma_pause = 0.08
+        else:
+            sentence_pause = 0.12
+            comma_pause = 0.05
 
     # Temporarily tweak engine properties for a less robotic feel
     prev_rate = engine.getProperty('rate')
@@ -78,6 +83,10 @@ def speak(text, clarity='high', voice_style='cool_boy'):
         base = BASE_RATE + 10
     else:
         base = BASE_RATE
+
+    # Increase base rate for fast speed
+    if speed == 'fast':
+        base = min(320, base + 40)
 
     try:
         for sentence in sentences:
@@ -107,9 +116,9 @@ def speak(text, clarity='high', voice_style='cool_boy'):
                     time.sleep(comma_pause)
                 else:
                     # very short gap between continuous chunks
-                    time.sleep(0.02)
+                    time.sleep(0.01 if speed == 'fast' else 0.02)
 
-            # Pause after each sentence for clarity
+            # Pause after each sentence for clarity (shorter if fast)
             time.sleep(sentence_pause)
     except Exception as e:
         print("TTS error:", e)
@@ -147,10 +156,10 @@ while True:
         user_text = recognizer.recognize_google(audio)
         print(f"👤 You: {user_text}")
 
-        reply = bot.reply(user_text)
+        # request fast-style replies and speak them a bit faster
+        reply = bot.reply(user_text, style='fast')
         print(f"🤖 N.I.K: {reply}")
-
-        speak(reply)
+        speak(reply, speed='fast', clarity='normal')
         time.sleep(0.2)
 
     except sr.UnknownValueError:

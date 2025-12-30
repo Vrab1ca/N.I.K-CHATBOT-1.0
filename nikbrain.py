@@ -104,14 +104,8 @@ class NikBrain:
             return resp
 
         out = resp
-        # fast style: prefer short quick responses
-        if style == 'fast':
-            if random.random() < 0.6:
-                out = random.choice(self.quick_responses)
-            else:
-                # shorten long replies
-                out_words = out.split()
-                out = ' '.join(out_words[:6]) + ('' if len(out_words) <= 6 else '...')
+        # fast style: keep the full generated reply (don't truncate),
+        # we'll make the TTS speak faster instead.
 
         # chill/vibe style: sprinkle slang occasionally
         if style in ('chill', 'vibe') and random.random() < 0.45:
