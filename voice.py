@@ -3,6 +3,7 @@ import random
 import speech_recognition as sr
 import pyttsx3
 import time
+import unicodedata
 
 from nikbrain import NikBrain   # CONNECT TO BRAIN
 
@@ -58,6 +59,9 @@ def speak(text, clarity='high', voice_style='cool_boy', speed='normal'):
         return
 
     text = _expand_initialisms(text)
+    # Normalize unicode punctuation to avoid engine truncation on smart quotes, etc.
+    text = unicodedata.normalize('NFKC', text)
+    text = text.replace('’', "'").replace('‘', "'").replace('“', '"').replace('”', '"')
     text = re.sub(r"\s+", " ", text.strip())
 
     # Sentence split (keeps punctuation attached)
@@ -89,22 +93,32 @@ def speak(text, clarity='high', voice_style='cool_boy', speed='normal'):
         base = min(320, base + 40)
 
     try:
+        # Queue all sentences and run the engine once — more reliable than many runAndWait() calls.
+        queued = 0
         for sentence in sentences:
             s = sentence.strip()
             if not s:
                 continue
-
-            # small natural variation in rate per sentence (keeps voice natural)
+            # small natural variation in rate per sentence
             rate_variation = random.randint(-6, 6)
             engine.setProperty('rate', max(120, base + rate_variation))
-
-            # Speak the entire sentence at once (more reliable across platforms).
-            # Adjust rate per-sentence, queue the sentence, then run the engine once.
             engine.say(s)
-            engine.runAndWait()
+            queued += 1
 
-            # Pause after each sentence for clarity (shorter if fast)
-            time.sleep(sentence_pause)
+        if queued:
+            try:
+                engine.runAndWait()
+            except Exception:
+                # if a single run fails, try per-sentence fallback
+                for sentence in sentences:
+                    s = sentence.strip()
+                    if not s:
+                        continue
+                    engine.say(s)
+                    engine.runAndWait()
+
+        # brief pause after speaking
+        time.sleep(sentence_pause)
     except Exception as e:
         print("TTS error:", e)
     finally:
