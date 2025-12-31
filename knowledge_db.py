@@ -18,17 +18,19 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_knowledge(topic, content, source="manual"):
+def save_knowledge(topic, content, source):
+    if not content or len(content.split()) < 60:
+        return
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("""
         INSERT INTO knowledge (topic, content, source, created_at)
         VALUES (?, ?, ?, ?)
-    """, (topic, content, source, datetime.utcnow().isoformat()))
+    """, (topic[:120], content, source, datetime.utcnow().isoformat()))
     conn.commit()
     conn.close()
 
-def search_knowledge(query, limit=3):
+def search_knowledge(query, limit=2):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("""
