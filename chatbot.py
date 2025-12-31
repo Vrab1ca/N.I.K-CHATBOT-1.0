@@ -12,6 +12,8 @@ import re
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from knowledge_db import init_db, search_knowledge, save_knowledge
+from web_search import web_search
 
 # =====================
 # CONFIG
@@ -23,6 +25,9 @@ MAX_NEW_TOKENS = 400
 TEMPERATURE = 0.8  # default, modes may override
 TOP_P = 0.9
 REPETITION_PENALTY = 1.15
+
+# initialize knowledge DB
+init_db()
 
 # =====================
 # MEMORY
@@ -87,6 +92,39 @@ class NikChatBot:
             torch_dtype=dtype,
             device_map="auto"
         ).eval()
+
+    # =====================
+    # KNOWLEDGE SYSTEM
+    # =====================
+    def get_external_knowledge(self, user_text):
+        """Try local knowledge first, then web search. Save web results."""
+        try:
+            local = search_knowledge(user_text)
+            if local:
+                return " ".join(local)
+        except Exception:
+            pass
+
+        try:
+            web = web_search(user_text)
+            if web:
+                combined = []
+                for r in web:
+                    # expect dicts with 'title' and 'body'
+                    title = r.get('title') or r.get('headline') or ''
+                    body = r.get('body') or r.get('snippet') or ''
+                    combined.append(f"{title}: {body}" if title or body else '')
+
+                final = " ".join([c for c in combined if c])
+                try:
+                    save_knowledge(user_text[:100], final, "web")
+                except Exception:
+                    pass
+                return final
+        except Exception:
+            pass
+
+        return ""
 
     # =====================
     # HUMAN-LIKE PATTERNS
@@ -233,14 +271,13 @@ class NikChatBot:
     
     def build_context_prompt(self, user_text):
         """Build prompt with recent conversation context"""
-        
         # Add recent history for context
         history_str = ""
         if self.conversation_history:
             recent = self.conversation_history[-3:]  # Last 3 exchanges
             for h in recent:
                 history_str += f"User: {h['user']}\nN.I.K: {h['bot']}\n"
-        
+
         # Mode-aware framing
         mode_note = ""
         if self.mode == "therapist":
@@ -254,13 +291,23 @@ class NikChatBot:
         elif self.mode == "jokes":
             mode_note = "You tell a light, family-friendly joke or short humorous anecdote."
 
+        # External knowledge (local DB or web)
+        knowledge = ""
+        try:
+            knowledge = self.get_external_knowledge(user_text)
+        except Exception:
+            knowledge = ""
+
+        knowledge_block = f"\nRelevant info:\n{knowledge}\n\n" if knowledge else ""
+
         prompt = (
             f"{self.personality}\n{mode_note}\n\n"
+            f"{knowledge_block}"
             f"{history_str}"
             f"User: {user_text}\n"
             f"N.I.K:"
         )
-        
+
         return prompt
 
     def generate(self, prompt, max_new_tokens=None, temperature=None):
