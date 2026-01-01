@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# voice.py — FIXED N.I.K Voice Bot (FAST SEARCH)
+# voice.py — Human-like Voice Search Bot
 
 import re
 import time
@@ -9,27 +9,15 @@ import speech_recognition as sr
 import pyttsx3
 
 from nikbrain import NikBrain
-from web_search_voice import search_wikipedia, search_web
+from web_search_voice import smart_search
 
 
 # =========================
 # VOICE ENGINE
 # =========================
 engine = pyttsx3.init()
-engine.setProperty("rate", 195)
+engine.setProperty("rate", 190)
 engine.setProperty("volume", 1.0)
-
-voices = engine.getProperty("voices")
-
-def choose_voice(voices_list):
-    for v in voices_list:
-        name = v.name.lower()
-        if "david" in name or "male" in name:
-            return v.id
-    return voices_list[0].id
-
-engine.setProperty("voice", choose_voice(voices))
-
 
 def speak(text):
     if not text:
@@ -43,39 +31,36 @@ def speak(text):
 # SPEECH TO TEXT
 # =========================
 recognizer = sr.Recognizer()
-recognizer.energy_threshold = 300
 recognizer.pause_threshold = 0.6
 mic = sr.Microphone()
 
 
 # =========================
-# SMART SEARCH DETECTOR
+# INTENT DETECTION
 # =========================
-QUESTION_WORDS = [
-    "what", "who", "when", "where", "why", "how",
-    "explain", "tell me", "information", "info",
-    "define", "about"
-]
-
-def needs_search(text):
-    text = text.lower()
-    if "?" in text:
-        return True
-    return any(word in text for word in QUESTION_WORDS)
+def detect_intent(text):
+    t = text.lower()
+    if "history" in t:
+        return "history"
+    if any(w in t for w in ["what is", "explain", "information", "about"]):
+        return "general"
+    return "chat"
 
 
-def clean_query(text):
-    text = text.lower()
-    text = re.sub(r"(tell me|explain|information|info|about|what is|who is)", "", text)
-    return text.strip()
+def extract_topic(text):
+    return re.sub(
+        r"(tell me|explain|what is|information|about|history of)",
+        "",
+        text.lower()
+    ).strip()
 
 
 # =========================
-# AI BRAIN
+# BOT
 # =========================
 bot = NikBrain()
 
-print("🎤 N.I.K Voice Bot READY (fixed). Speak.\n")
+print("🎤 N.I.K is ready. Speak.\n")
 
 
 # =========================
@@ -85,35 +70,24 @@ while True:
     try:
         with mic as source:
             recognizer.adjust_for_ambient_noise(source, duration=0.2)
-            print("🧠 Listening...")
             audio = recognizer.listen(source)
 
         user_text = recognizer.recognize_google(audio)
         print("👤 You:", user_text)
 
-        reply = ""
+        intent = detect_intent(user_text)
+        topic = extract_topic(user_text)
 
-        # ---------- SEARCH FIRST ----------
-        if needs_search(user_text):
-            query = clean_query(user_text)
-
-            wiki = search_wikipedia(query)
-            if wiki:
-                reply = wiki
-            else:
-                web = search_web(query)
-                reply = web
-
-        # ---------- CHAT FALLBACK ----------
-        if not reply:
+        if intent != "chat":
+            mode = "short" if len(user_text) < 40 else "long"
+            reply = smart_search(topic, intent, mode)
+        else:
             reply = bot.reply(user_text, style="fast")
 
         print("🤖 N.I.K:", reply)
         speak(reply)
         time.sleep(0.1)
 
-    except sr.UnknownValueError:
-        print("🤔 Didn't catch that.")
     except KeyboardInterrupt:
         print("\n👋 Bye.")
         break
