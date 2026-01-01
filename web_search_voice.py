@@ -1,21 +1,36 @@
 # web_search_voice.py
-# Human-like multi-step information search & synthesis
+# Stable, ChatGPT-like factual search & synthesis (VOICE SAFE)
 
 import wikipedia
 from duckduckgo_search import DDGS
 import re
+from urllib.parse import urlparse
+
+
+# =========================
+# TRUSTED SOURCES (PRIORITY)
+# =========================
+TRUSTED_DOMAINS = [
+    "wikipedia.org",
+    "britannica.com",
+    "bbc.com",
+    "nationalgeographic.com",
+    "nasa.gov",
+    "smithsonianmag.com",
+    "https://www.gov.bg"
+]
 
 
 # =========================
 # TEXT UTILITIES
 # =========================
-def clean_text(text):
+def clean_text(text: str) -> str:
     text = re.sub(r"\[[0-9]+\]", "", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
-def split_sentences(text):
+def split_sentences(text: str):
     return re.split(r"(?<=[.!?])\s+", text)
 
 
@@ -23,28 +38,31 @@ def deduplicate(sentences):
     seen = set()
     out = []
     for s in sentences:
-        k = s.lower()
-        if k not in seen and len(s) > 40:
-            seen.add(k)
+        key = s.lower()
+        if key not in seen and len(s) > 50:
+            seen.add(key)
             out.append(s)
     return out
 
 
 def score_sentence(sentence, keywords):
-    score = 0
     s = sentence.lower()
+    score = 0
+
     for k in keywords:
         if k in s:
             score += 2
-    if any(x in s for x in ["century", "period", "empire", "independence", "founded"]):
+
+    if any(w in s for w in ["century", "period", "empire", "independence", "founded"]):
         score += 1
+
     return score
 
 
 # =========================
-# WIKIPEDIA SEARCH
+# WIKIPEDIA BASE
 # =========================
-def wiki_search(query, sentences=12):
+def wiki_search(query, sentences=8):
     try:
         wikipedia.set_lang("en")
         return clean_text(wikipedia.summary(query, sentences=sentences))
@@ -53,103 +71,126 @@ def wiki_search(query, sentences=12):
 
 
 # =========================
-# WEB SEARCH (MULTI RESULT)
+# WEB SEARCH (SAFE MODE)
 # =========================
-def web_search(query, max_results=5):
-    texts = []
+def web_search(query, max_results=6):
+    results = []
+
     try:
         with DDGS() as ddgs:
             for r in ddgs.text(query, max_results=max_results):
-                body = r.get("body", "")
-                if body and len(body) > 80:
-                    texts.append(clean_text(body))
+                body = clean_text(r.get("body", ""))
+                url = r.get("href", "")
+                title = r.get("title", "") or url
+
+                if len(body) < 80:
+                    continue
+
+                results.append({
+                    "title": title,
+                    "text": body,
+                    "url": url,
+                    "domain": urlparse(url).netloc
+                })
     except Exception:
         pass
-    return texts
+
+    # prioritize trusted domains
+    results.sort(
+        key=lambda r: any(d in r["domain"] for d in TRUSTED_DOMAINS),
+        reverse=True
+    )
+
+    return results
 
 
 # =========================
-# QUERY GENERATOR (THINKING)
+# QUERY GENERATION (THINKING)
 # =========================
 def generate_queries(topic, intent):
-    base = topic.lower()
+    t = topic.lower()
 
     if intent == "history":
         return [
-            f"history of {base}",
-            f"{base} ancient medieval modern history",
-            f"{base} historical timeline",
-            f"{base} major historical events",
-            f"{base} empire independence"
+            f"history of {t}",
+            f"{t} ancient history",
+            f"{t} medieval history",
+            f"{t} modern history",
+            f"{t} major historical events",
         ]
 
     return [
-        base,
-        f"{base} explanation",
-        f"{base} overview",
-        f"what is {base}"
+        f"{t}",
+        f"{t} explanation",
+        f"{t} overview",
+        f"what is {t}",
     ]
 
 
 # =========================
-# MAIN SMART SEARCH
+# MAIN SEARCH (CHATGPT-LIKE)
 # =========================
 def smart_search(topic, intent="general", mode="long"):
-    collected = []
+    sources = []
 
-    # 1️⃣ Wikipedia first (trusted base)
+    # 1️⃣ Wikipedia (trusted backbone)
     wiki = wiki_search(topic)
     if wiki:
-        collected.append(wiki)
+        sources.append({
+            "title": f"Wikipedia – {topic}",
+            "text": wiki,
+            "url": f"https://en.wikipedia.org/wiki/{topic.replace(' ', '_')}",
+            "domain": "wikipedia.org"
+        })
 
     # 2️⃣ Multi-query web search
-    queries = generate_queries(topic, intent)
-    for q in queries:
-        collected.extend(web_search(q))
+    for q in generate_queries(topic, intent):
+        for hit in web_search(q):
+            if not any(hit["url"] == s["url"] for s in sources):
+                sources.append(hit)
 
-    # 3️⃣ Sentence processing
+    if not sources:
+        return "I could not find reliable information."
+
+    # 3️⃣ Sentence aggregation
     sentences = []
-    for block in collected:
-        sentences.extend(split_sentences(block))
+    for s in sources:
+        sentences.extend(split_sentences(s["text"]))
 
     sentences = deduplicate(sentences)
-
     if not sentences:
-        return ""
+        return "No clear information extracted."
 
     # 4️⃣ Ranking
-    keywords = topic.lower().split()
+    keywords = [k for k in topic.lower().split() if len(k) > 2]
     ranked = sorted(
         sentences,
         key=lambda s: score_sentence(s, keywords),
         reverse=True
     )
 
-    # 5️⃣ Build response
+    # SHORT MODE (VOICE FAST)
     if mode == "short":
         return " ".join(ranked[:3])
 
-    # Long structured response
-    intro = ranked[0]
+    # 5️⃣ Structured response
+    overview = ranked[0]
+    facts = ranked[1:7]
 
-    ancient, medieval, modern = [], [], []
+    response = []
+    response.append(f"Topic: {topic}")
+    response.append("")
+    response.append("Overview:")
+    response.append(overview)
+    response.append("")
+    response.append("Key points:")
 
-    for s in ranked:
-        l = s.lower()
-        if any(w in l for w in ["ancient", "roman", "thrac"]):
-            ancient.append(s)
-        elif any(w in l for w in ["medieval", "empire", "ottoman", "byzant"]):
-            medieval.append(s)
-        elif any(w in l for w in ["modern", "independ", "world war", "20th"]):
-            modern.append(s)
+    for f in facts:
+        response.append("- " + f)
 
-    response = intro
+    response.append("")
+    response.append("Sources:")
+    for i, s in enumerate(sources[:5], start=1):
+        response.append(f"{i}. {s['domain']}")
 
-    if ancient:
-        response += "\n\nAncient period: " + " ".join(ancient[:3])
-    if medieval:
-        response += "\n\nMedieval period: " + " ".join(medieval[:3])
-    if modern:
-        response += "\n\nModern period: " + " ".join(modern[:3])
-
-    return response.strip()
+    return "\n".join(response).strip()
